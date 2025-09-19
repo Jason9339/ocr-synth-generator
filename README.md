@@ -1,0 +1,1 @@
+# ocr-synth-generator
