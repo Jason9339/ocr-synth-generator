@@ -1,0 +1,131 @@
+# 第一次建庫（水平 + 垂直 → 合併 → 分片 LMDB）
+
+## 1) 產「水平」
+
+```bash
+python3 synth.py --lines lines.txt --fonts_dir fonts --bgs_dir backgrounds \
+  --out_dir out_h --n_per_line 20 --no_debug_boxes \
+  --last_resort_font NotoSansTC-Regular.ttf --seed 20
+```
+
+## 2) 產「垂直」
+
+```bash
+python3 synth.py --lines lines.txt --fonts_dir fonts --bgs_dir backgrounds \
+  --out_dir out_v --n_per_line 20 --vertical --no_debug_boxes \
+  --last_resort_font NotoSansTC-Regular.ttf --seed 20
+```
+
+## 3) 合併 manifest
+
+```bash
+mkdir -p out_all
+cat out_h/manifest.jsonl out_v/manifest.jsonl > out_all/manifest.jsonl
+# 可檢查行數
+wc -l out_h/manifest.jsonl out_v/manifest.jsonl out_all/manifest.jsonl
+```
+
+## 4) 建立「第一批」分片 LMDB（建在 batch_001/）
+
+> 重點：把 `--lmdb_dir` 指到 **新批次資料夾**，例如 `out_train_lmdb/batch_001`
+
+```bash
+python3 tools/build_lmdb.py \
+  --manifest out_all/manifest.jsonl \
+  --lmdb_dir out_train_lmdb/batch_001 \
+  --shard_size 100000 \
+  --map_size_mb 0
+```
+
+結構會長這樣：
+
+```
+out_train_lmdb/
+  batch_001/
+    data.mdb, lock.mdb           # （或 shard_000/, shard_001/… 視你的資料量）
+  meta.json                       #（本腳本會在指定 lmdb_dir 下寫 meta；每批都有自己的 meta）
+```
+
+> 你的 `OCRLmdb`（我之前給的 Dataset）會自動偵測 `out_train_lmdb/` 下面所有含 `data.mdb` 的子資料夾，一次掛載讀取，因此多批一起訓練沒問題。
+
+---
+
+# 之後增量（第二批、第三批…）
+
+假設你第二次又要新增資料（也同樣需要水平＋垂直）：
+
+## 1) 產「水平（第二批）」
+
+```bash
+python3 synth.py --lines lines.txt --fonts_dir fonts --bgs_dir backgrounds \
+  --out_dir out_h2 --n_per_line 10 --no_debug_boxes --last_resort_font NotoSansTC-Regular.ttf
+```
+
+## 2) 產「垂直（第二批）」
+
+```bash
+python3 synth.py --lines lines.txt --fonts_dir fonts --bgs_dir backgrounds \
+  --out_dir out_v2 --n_per_line 10 --vertical --no_debug_boxes --last_resort_font NotoSansTC-Regular.ttf
+```
+
+## 3) 合併 manifest（第二批）
+
+```bash
+mkdir -p out_new
+cat out_h2/manifest.jsonl out_v2/manifest.jsonl > out_new/manifest.jsonl
+wc -l out_h2/manifest.jsonl out_v2/manifest.jsonl out_new/manifest.jsonl
+```
+
+## 4) 建立「第二批」分片 LMDB（建在 batch_002/）
+
+```bash
+python3 tools/build_lmdb.py \
+  --manifest out_new/manifest.jsonl \
+  --lmdb_dir out_train_lmdb/batch_002 \
+  --shard_size 100000 \
+  --map_size_mb 0
+```
+
+完成後，整體結構：
+
+```
+out_train_lmdb/
+  batch_001/  # 第一次
+    data.mdb, lock.mdb  或 shard_000/...
+  batch_002/  # 第二次
+    data.mdb, lock.mdb  或 shard_000/...
+```
+
+> **訓練端不需改任何路徑**：仍指定 `out_train_lmdb/` 當根目錄即可；Dataset 會同時讀 `batch_001/` 與 `batch_002/`。
+> 以後每次增量就加一個 `batch_003/`, `batch_004/`…，流程同上。
+
+---
+
+## 可選（建庫前先打散）
+
+如果想在「鍵序」層級也打散，可先洗牌 manifest 再建庫：
+
+```bash
+shuf out_all/manifest.jsonl > out_all/manifest_shuf.jsonl
+python3 tools/build_lmdb.py --manifest out_all/manifest_shuf.jsonl --lmdb_dir out_train_lmdb/batch_001 --shard_size 100000 --map_size_mb 0
+```
+
+> 但訓練時 `DataLoader(shuffle=True)` 就能完全打散，這步不是必需。
+
+---
+
+## 訓練端（提醒）
+
+```python
+from torch.utils.data import DataLoader
+dataset = OCRLmdb("out_train_lmdb")   # 指到根目錄；會自動掛載所有 batch_XXX/
+loader  = DataLoader(dataset, batch_size=bs, shuffle=True, num_workers=4, pin_memory=True)
+```
+
+* 需要平衡 h/v 比例，可用檔名 `_h_` / `_v_` 來做分層抽樣；要我就幫你補個 BalancedSampler。
+
+---
+
+### 為什麼不用同一資料夾直接「追加」？
+
+LMDB 原地追加要預先保證 `map_size`，且容易踩到擴容/覆蓋風險。用**分批目錄**更安全、可回滾、也便於備份與 A/B（關掉某批只要移除對應資料夾即可）。
