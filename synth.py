@@ -235,7 +235,7 @@ def plan_layout(
 
     return LayoutPlan(glyphs, union_l, union_t, union_r, union_b, pad_l, pad_t, pad_r, pad_b)
 
-def render_layout(layout: LayoutPlan, text_color: str, last_resort: Path, debug_boxes: bool = False) -> Image.Image:
+def render_layout(layout: LayoutPlan, text_color: str, last_resort: Path, debug_boxes: bool = False, img_id: Optional[str] = None, error_log_path: Optional[Path] = None) -> Image.Image:
     W = int(math.ceil(layout.union_r - layout.union_l) + layout.pad_l + layout.pad_r)
     H = int(math.ceil(layout.union_b - layout.union_t) + layout.pad_t + layout.pad_b)
     img = Image.new("RGBA", (max(1, W), max(1, H)), (0, 0, 0, 0))
@@ -255,7 +255,19 @@ def render_layout(layout: LayoutPlan, text_color: str, last_resort: Path, debug_
                 last_resort_font = _load_font_cached(last_resort, p.font.size)
                 d.text((anchor_x, anchor_y), p.ch, font=last_resort_font, fill=text_color)
             except Exception as e:
-                print(f"[ERROR] 使用最後備援字體渲染 '{p.ch}' 失敗: {e}")
+                # 圖片編號字串（保險起見給個預設）
+                _img_id = img_id or "unknown_id"
+                # 1) 終端輸出含圖片編號
+                print(f"[ERROR][{_img_id}] '{p.ch}' (U+{ord(p.ch):04X}) 最後備援渲染失敗；原字體={p.font_path.name}；err={e}")
+                # 2) 落檔記錄問題影像編號
+                if error_log_path is not None:
+                    try:
+                        with open(error_log_path, "a", encoding="utf-8") as _elog:
+                            _elog.write(f"{_img_id}\tU+{ord(p.ch):04X}\t{p.ch}\t{p.font_path.name}\t{repr(e)}\n")
+                            _elog.flush()
+                    except Exception as _:
+                        # 落檔失敗不阻斷流程，僅略過
+                        pass
 
     if debug_boxes:
         for p in layout.glyphs:
@@ -357,6 +369,8 @@ def synth_one(
     debug_boxes: bool = DEBUG_BOXES_DEFAULT,
     box_jitter: Tuple[int,int] = BOX_JITTER_DEFAULT,
     union_pad_pt_range: Tuple[int,int] = UNION_PAD_PT_RANGE,
+    img_id: Optional[str] = None,
+    error_log_path: Optional[Path] = None,
 ) -> Image.Image:
     primary_font = random.choice(all_fonts)
     other_fonts = [f for f in all_fonts if f != primary_font]
@@ -378,7 +392,7 @@ def synth_one(
     )
 
     text_color = TEXT_GRAY_14[random.randint(*GRAY_IDX_RANGE)]
-    text_rgba = render_layout(layout, text_color, last_resort, debug_boxes)
+    text_rgba = render_layout(layout, text_color, last_resort, debug_boxes, img_id, error_log_path)
     out = compose_tight_with_texture(text_rgba, Path(bgs_dir))
 
     if ENABLE_BLUR:
@@ -423,6 +437,15 @@ def main():
     outdir = Path(args.out_dir); outdir.mkdir(parents=True, exist_ok=True)
     manifest_path = Path(args.manifest) if args.manifest else outdir / "manifest.jsonl"
 
+    error_log_path = outdir / "error_log.txt"
+    try:
+        if error_log_path.exists():
+            error_log_path.unlink()  # 刪除舊檔
+        error_log_path.touch()      # 建立新檔
+    except Exception as e:
+        print(f"[WARN] 無法建立錯誤記錄檔 {error_log_path.resolve()}：{e}")
+        error_log_path = None  # 若無法建立，後續不記錄
+
     lines = [ln.strip() for ln in Path(args.lines).read_text(encoding="utf-8").splitlines() if ln.strip()]
     if args.max_lines is not None:
         lines = lines[:args.max_lines]
@@ -439,6 +462,7 @@ def main():
     with open(manifest_path, "w", encoding="utf-8") as mf:
         for i, text_raw in enumerate(lines):
             for k in range(args.n_per_line):
+                fn = f"{i:06d}_{'v' if vertical else 'h'}_{k}.jpg"
                 img = synth_one(
                     text_raw=text_raw,
                     orientation=("vertical" if vertical else "horizontal"),
@@ -448,8 +472,9 @@ def main():
                     debug_boxes=debug_boxes,
                     box_jitter=box_jitter,
                     union_pad_pt_range=union_pad_pt,
+                    img_id=fn,
+                    error_log_path=error_log_path
                 )
-                fn = f"{i:06d}_{'v' if vertical else 'h'}_{k}.jpg"
                 fpath = outdir / fn
                 img.save(fpath, quality=95)
                 mf.write(json.dumps({"image_path": str(fpath), "label": text_raw}, ensure_ascii=False) + "\n")
