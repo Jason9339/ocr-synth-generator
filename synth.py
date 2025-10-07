@@ -427,6 +427,9 @@ def main():
                    help="綠框外四邊隨機邊距（pt），min,max；最小可 0")
     p.add_argument("--last_resort_font", type=str, default="", help="最後備援字體（路徑或 fonts 內名稱/關鍵字）。未指定會自動從 fonts/ 嘗試挑 Noto/SourceHan。")
     p.add_argument("--seed", type=int, default=None, help="Random seed for reproducible synthesis")  # <<< NEW
+    p.add_argument("--start_line", type=int, default=0, help="起始行號（從 0 開始）")
+    p.add_argument("--end_line", type=int, default=None, help="結束行號（不含），None 表示到結尾")
+    p.add_argument("--num_workers", type=int, default=1, help="Number of CPU workers (for reference in batch scripts)")
     args = p.parse_args()
 
     # <<< NEW: 固定隨機性（在任何隨機操作前）
@@ -447,6 +450,11 @@ def main():
         error_log_path = None  # 若無法建立，後續不記錄
 
     lines = [ln.strip() for ln in Path(args.lines).read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    # Apply line range filtering
+    end_line = args.end_line if args.end_line is not None else len(lines)
+    lines = lines[args.start_line:end_line]
+
     if args.max_lines is not None:
         lines = lines[:args.max_lines]
     vertical = bool(args.vertical)
@@ -461,8 +469,10 @@ def main():
 
     with open(manifest_path, "w", encoding="utf-8") as mf:
         for i, text_raw in enumerate(lines):
+            # Use global line index for consistent filenames
+            global_idx = args.start_line + i
             for k in range(args.n_per_line):
-                fn = f"{i:06d}_{'v' if vertical else 'h'}_{k}.jpg"
+                fn = f"{global_idx:06d}_{'v' if vertical else 'h'}_{k}.jpg"
                 img = synth_one(
                     text_raw=text_raw,
                     orientation=("vertical" if vertical else "horizontal"),
