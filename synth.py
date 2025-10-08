@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Iterable, Set
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
+from multiprocessing import get_context
 
 # ================== 外觀 / 參數 ==================
 TEXT_GRAY_14 = [
@@ -407,6 +408,42 @@ def _parse_pair(s: str, typ=int, default=(0,0)) -> Tuple[int,int]:
     except Exception:
         return default
 
+def _init_worker(seed_base):
+    """Initialize each worker process with a unique seed."""
+    import os
+    worker_seed = seed_base + os.getpid() if seed_base is not None else None
+    if worker_seed is not None:
+        os.environ["PYTHONHASHSEED"] = str(worker_seed)
+        random.seed(worker_seed)
+
+def _process_single_image(args_tuple):
+    """Process a single image generation task."""
+    (text_raw, global_idx, k, vertical, all_fonts, last_resort,
+     bgs_dir, debug_boxes, box_jitter, union_pad_pt,
+     error_log_path, outdir) = args_tuple
+
+    fn = f"{global_idx:06d}_{'v' if vertical else 'h'}_{k}.jpg"
+    img = synth_one(
+        text_raw=text_raw,
+        orientation=("vertical" if vertical else "horizontal"),
+        all_fonts=all_fonts,
+        last_resort=last_resort,
+        bgs_dir=bgs_dir,
+        debug_boxes=debug_boxes,
+        box_jitter=box_jitter,
+        union_pad_pt_range=union_pad_pt,
+        img_id=fn,
+        error_log_path=error_log_path
+    )
+    fpath = outdir / fn
+    img.save(fpath, quality=95)
+    del img  # Release image memory for long-running batches
+
+    return {
+        "image_path": str(fpath),
+        "label": text_raw
+    }
+
 def main():
     import argparse
     p = argparse.ArgumentParser(description="Single-line OCR synth with random primary font + per-glyph fallback.")
@@ -426,68 +463,77 @@ def main():
     p.add_argument("--union_pad", type=str, default=f"{UNION_PAD_PT_RANGE[0]},{UNION_PAD_PT_RANGE[1]}",
                    help="綠框外四邊隨機邊距（pt），min,max；最小可 0")
     p.add_argument("--last_resort_font", type=str, default="", help="最後備援字體（路徑或 fonts 內名稱/關鍵字）。未指定會自動從 fonts/ 嘗試挑 Noto/SourceHan。")
-    p.add_argument("--seed", type=int, default=None, help="Random seed for reproducible synthesis")  # <<< NEW
+    p.add_argument("--seed", type=int, default=None, help="Random seed for reproducible synthesis")
     p.add_argument("--start_line", type=int, default=0, help="起始行號（從 0 開始）")
     p.add_argument("--end_line", type=int, default=None, help="結束行號（不含），None 表示到結尾")
-    p.add_argument("--num_workers", type=int, default=1, help="Number of CPU workers (for reference in batch scripts)")
+    p.add_argument("--num_workers", type=int, default=1, help="Number of CPU workers for parallel processing")
     args = p.parse_args()
 
-    # <<< NEW: 固定隨機性（在任何隨機操作前）
-    if args.seed is not None:
-        os.environ["PYTHONHASHSEED"] = str(args.seed)
-        random.seed(args.seed)
+    # Set base seed (each worker will get a unique seed)
+    seed_base = args.seed
 
     outdir = Path(args.out_dir); outdir.mkdir(parents=True, exist_ok=True)
     manifest_path = Path(args.manifest) if args.manifest else outdir / "manifest.jsonl"
-
-    error_log_path = outdir / "error_log.txt"
-    try:
-        if error_log_path.exists():
-            error_log_path.unlink()  # 刪除舊檔
-        error_log_path.touch()      # 建立新檔
-    except Exception as e:
-        print(f"[WARN] 無法建立錯誤記錄檔 {error_log_path.resolve()}：{e}")
-        error_log_path = None  # 若無法建立，後續不記錄
 
     lines = [ln.strip() for ln in Path(args.lines).read_text(encoding="utf-8").splitlines() if ln.strip()]
 
     # Apply line range filtering
     end_line = args.end_line if args.end_line is not None else len(lines)
-    lines = lines[args.start_line:end_line]
+    lines_filtered = lines[args.start_line:end_line]
+
+    # Generate batch-specific error log filename
+    orient_tag = "v" if args.vertical else "h"
+    part_tag = f"{orient_tag}_{args.start_line}_{end_line}"
+    error_log_path = outdir / f"error_log_{part_tag}.txt"
+    error_log_path.touch(exist_ok=True)
 
     if args.max_lines is not None:
-        lines = lines[:args.max_lines]
+        lines_filtered = lines_filtered[:args.max_lines]
     vertical = bool(args.vertical)
     box_jitter  = _parse_pair(args.box_jitter, int, BOX_JITTER_DEFAULT)
     union_pad_pt = _parse_pair(args.union_pad, int, UNION_PAD_PT_RANGE)
     debug_boxes = args.debug_boxes
 
     all_fonts, last_resort = preflight_ensure_full_coverage(
-        lines=lines, vertical=vertical, fonts_dir=Path(args.fonts_dir),
+        lines=lines_filtered, vertical=vertical, fonts_dir=Path(args.fonts_dir),
         last_resort_font=(args.last_resort_font or None)
     )
 
+    # Build task list
+    tasks = []
+    for i, text_raw in enumerate(lines_filtered):
+        global_idx = args.start_line + i
+        for k in range(args.n_per_line):
+            tasks.append((
+                text_raw, global_idx, k, vertical, all_fonts, last_resort,
+                args.bgs_dir, debug_boxes, box_jitter, union_pad_pt,
+                error_log_path, outdir
+            ))
+
+    # Process with streaming manifest write to avoid memory overflow
+    # Use spawn context to avoid copy-on-write issues and improve memory cleanup
+    ctx = get_context("spawn")
+
     with open(manifest_path, "w", encoding="utf-8") as mf:
-        for i, text_raw in enumerate(lines):
-            # Use global line index for consistent filenames
-            global_idx = args.start_line + i
-            for k in range(args.n_per_line):
-                fn = f"{global_idx:06d}_{'v' if vertical else 'h'}_{k}.jpg"
-                img = synth_one(
-                    text_raw=text_raw,
-                    orientation=("vertical" if vertical else "horizontal"),
-                    all_fonts=all_fonts,
-                    last_resort=last_resort,
-                    bgs_dir=args.bgs_dir,
-                    debug_boxes=debug_boxes,
-                    box_jitter=box_jitter,
-                    union_pad_pt_range=union_pad_pt,
-                    img_id=fn,
-                    error_log_path=error_log_path
-                )
-                fpath = outdir / fn
-                img.save(fpath, quality=95)
-                mf.write(json.dumps({"image_path": str(fpath), "label": text_raw}, ensure_ascii=False) + "\n")
+        if args.num_workers > 1:
+            print(f"Processing {len(tasks)} images with {args.num_workers} workers...")
+            with ctx.Pool(
+                processes=args.num_workers,
+                initializer=_init_worker,
+                initargs=(seed_base,),
+                maxtasksperchild=1000  # Restart workers every 1000 tasks to prevent memory accumulation
+            ) as pool:
+                # Use imap_unordered for streaming results without storing all in memory
+                for result in pool.imap_unordered(_process_single_image, tasks, chunksize=50):
+                    mf.write(json.dumps(result, ensure_ascii=False) + "\n")
+        else:
+            print(f"Processing {len(tasks)} images with single worker...")
+            if seed_base is not None:
+                os.environ["PYTHONHASHSEED"] = str(seed_base)
+                random.seed(seed_base)
+            for task in tasks:
+                result = _process_single_image(task)
+                mf.write(json.dumps(result, ensure_ascii=False) + "\n")
 
     print(f"Done. Saved images to {outdir.resolve()}, manifest -> {manifest_path.resolve()}")
 

@@ -2,7 +2,10 @@
 # Master batch processing script for OCR synthesis
 # Runs both horizontal and vertical text generation sequentially
 
-set -e
+set -euo pipefail
+mkdir -p logs
+exec > >(tee -a logs/master_$(date +%Y%m%d_%H%M%S).log) 2>&1
+trap 'echo "[FATAL] Script stopped unexpectedly at $(date)" >> logs/master_$(date +%Y%m%d_%H%M%S).log' ERR
 
 # Default configuration
 LINES_FILE="lines.txt"
@@ -246,24 +249,59 @@ echo "  Vertical:   $V_COUNT"
 echo "  Total:      $((H_COUNT + V_COUNT))"
 echo ""
 
-# Check for errors
-if [ -f "$OUT_DIR_H/error_log.txt" ]; then
-    H_ERRORS=$(wc -l < "$OUT_DIR_H/error_log.txt")
+# Merge batch manifests
+echo "Merging batch manifests..."
+if ls "$OUT_DIR_H"/manifest_h_*.jsonl 1> /dev/null 2>&1; then
+    cat "$OUT_DIR_H"/manifest_h_*.jsonl > "$OUT_DIR_H/manifest_h_all.jsonl"
+    H_MANIFEST_COUNT=$(wc -l < "$OUT_DIR_H/manifest_h_all.jsonl")
+    echo "  Horizontal manifest: $H_MANIFEST_COUNT entries → $OUT_DIR_H/manifest_h_all.jsonl"
+fi
+
+if ls "$OUT_DIR_V"/manifest_v_*.jsonl 1> /dev/null 2>&1; then
+    cat "$OUT_DIR_V"/manifest_v_*.jsonl > "$OUT_DIR_V/manifest_v_all.jsonl"
+    V_MANIFEST_COUNT=$(wc -l < "$OUT_DIR_V/manifest_v_all.jsonl")
+    echo "  Vertical manifest:   $V_MANIFEST_COUNT entries → $OUT_DIR_V/manifest_v_all.jsonl"
+fi
+echo ""
+
+# Check for errors across all batch error logs
+H_ERRORS=0
+if ls "$OUT_DIR_H"/error_log_h_*.txt 1> /dev/null 2>&1; then
+    for error_file in "$OUT_DIR_H"/error_log_h_*.txt; do
+        if [ -s "$error_file" ]; then
+            FILE_ERRORS=$(wc -l < "$error_file")
+            H_ERRORS=$((H_ERRORS + FILE_ERRORS))
+        fi
+    done
     if [ $H_ERRORS -gt 0 ]; then
-        echo "⚠ Warning: $H_ERRORS errors logged in $OUT_DIR_H/error_log.txt"
+        echo "⚠ Warning: $H_ERRORS total errors in horizontal batches"
+        echo "  Error logs: $OUT_DIR_H/error_log_h_*.txt"
     fi
 fi
 
-if [ -f "$OUT_DIR_V/error_log.txt" ]; then
-    V_ERRORS=$(wc -l < "$OUT_DIR_V/error_log.txt")
+V_ERRORS=0
+if ls "$OUT_DIR_V"/error_log_v_*.txt 1> /dev/null 2>&1; then
+    for error_file in "$OUT_DIR_V"/error_log_v_*.txt; do
+        if [ -s "$error_file" ]; then
+            FILE_ERRORS=$(wc -l < "$error_file")
+            V_ERRORS=$((V_ERRORS + FILE_ERRORS))
+        fi
+    done
     if [ $V_ERRORS -gt 0 ]; then
-        echo "⚠ Warning: $V_ERRORS errors logged in $OUT_DIR_V/error_log.txt"
+        echo "⚠ Warning: $V_ERRORS total errors in vertical batches"
+        echo "  Error logs: $OUT_DIR_V/error_log_v_*.txt"
     fi
+fi
+
+if [ $H_ERRORS -eq 0 ] && [ $V_ERRORS -eq 0 ]; then
+    echo "✓ No errors detected"
 fi
 
 echo ""
 echo "Next steps:"
-echo "  1. Check error logs (if any)"
-echo "  2. Verify output images: ls -lh $OUT_DIR_H/ | head"
-echo "  3. Review manifests: head $OUT_DIR_H/manifest.jsonl"
+echo "  1. Check error logs (if any): ls -lh $OUT_DIR_H/error_log_*.txt"
+echo "  2. Verify output images: ls -lh $OUT_DIR_H/*.jpg | head"
+echo "  3. Review merged manifests:"
+echo "     - head $OUT_DIR_H/manifest_h_all.jsonl"
+echo "     - head $OUT_DIR_V/manifest_v_all.jsonl"
 echo ""

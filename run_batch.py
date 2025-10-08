@@ -32,12 +32,17 @@ def run_batch(
     end_line: int,
 ) -> int:
     """Run synth.py for a specific line range."""
+    # Generate batch-specific manifest filename
+    orient = "v" if vertical else "h"
+    manifest = f"{out_dir}/manifest_{orient}_{start_line}_{end_line}.jsonl"
+
     cmd = [
         "python3", "synth.py",
         "--lines", lines_file,
         "--fonts_dir", fonts_dir,
         "--bgs_dir", bgs_dir,
         "--out_dir", out_dir,
+        "--manifest", manifest,
         "--n_per_line", str(n_per_line),
         "--box_jitter", box_jitter,
         "--no_debug_boxes",
@@ -73,7 +78,7 @@ def main():
     parser.add_argument("--box_jitter", type=str, default="2,2", help="Box jitter (x,y)")
     parser.add_argument("--last_resort_font", type=str, default="NotoSansTC-Regular.ttf", help="Last resort font")
     parser.add_argument("--seed", type=int, default=20, help="Random seed")
-    parser.add_argument("--num_workers", type=int, default=6, help="Number of workers per batch")
+    parser.add_argument("--num_workers", type=int, default=6, help="Number of CPU workers for parallel processing per batch")
 
     # Batch processing
     parser.add_argument("--batch_size", type=int, default=10000, help="Lines per batch (default: 10000)")
