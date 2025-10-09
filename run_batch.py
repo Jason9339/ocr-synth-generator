@@ -8,6 +8,8 @@ Splits workload into manageable chunks to avoid memory issues.
 import argparse
 import subprocess
 import sys
+import shutil
+import json
 from pathlib import Path
 
 
@@ -31,7 +33,7 @@ def run_batch(
     start_line: int,
     end_line: int,
 ) -> int:
-    """Run synth.py for a specific line range."""
+    """Run synth.py for a specific line range. Returns returncode."""
     # Generate batch-specific manifest filename
     orient = "v" if vertical else "h"
     manifest = f"{out_dir}/manifest_{orient}_{start_line}_{end_line}.jsonl"
@@ -42,7 +44,7 @@ def run_batch(
         "--fonts_dir", fonts_dir,
         "--bgs_dir", bgs_dir,
         "--out_dir", out_dir,
-        "--manifest", manifest,
+        "--manifest", str(manifest),
         "--n_per_line", str(n_per_line),
         "--box_jitter", box_jitter,
         "--no_debug_boxes",
