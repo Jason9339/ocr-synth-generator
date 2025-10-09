@@ -15,8 +15,8 @@ FONTS_DIR="fonts"
 BGS_DIR="backgrounds"
 
 # ★★★ 全部使用本機磁碟 ★★★
-OUT_DIR_H="/ocr_out_h"
-OUT_DIR_V="/ocr_out_v"
+OUT_DIR_H="/root/ocr_out_h"
+OUT_DIR_V="/root/ocr_out_v"
 
 N_PER_LINE=20
 BOX_JITTER="2,2"
@@ -81,8 +81,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --lines LINES_FILE            Input text file (default: lines.txt)"
             echo "  --fonts_dir FONTS_DIR         Fonts directory (default: fonts)"
             echo "  --bgs_dir BGS_DIR             Backgrounds directory (default: backgrounds)"
-            echo "  --out_dir_h OUT_DIR_H         Horizontal output directory (default: /ocr_out_h)"
-            echo "  --out_dir_v OUT_DIR_V         Vertical output directory (default: /ocr_out_v)"
+            echo "  --out_dir_h OUT_DIR_H         Horizontal output directory (default: /root/ocr_out_h)"
+            echo "  --out_dir_v OUT_DIR_V         Vertical output directory (default: /root/ocr_out_v)"
             echo "  --n_per_line N                Images per line (default: 20)"
             echo "  --box_jitter X,Y              Box jitter (default: 2,2)"
             echo "  --last_resort_font FONT       Last resort font (default: NotoSansTC-Regular.ttf)"
@@ -137,27 +137,20 @@ if [ ! -d "$BGS_DIR" ]; then
     exit 1
 fi
 
-# Ensure output paths are on local filesystem (not NFS)
+# Ensure output paths are on local filesystem (not NFS/tmpfs)
 for out_path in "$OUT_DIR_H" "$OUT_DIR_V"; do
     mkdir -p "$out_path"
     fs_type=$(stat -f -c %T "$out_path" 2>/dev/null || echo "unknown")
 
-    if echo "$fs_type" | grep -qiE 'nfs|cifs|smb'; then
-        echo "[FATAL] $out_path is on $fs_type (network filesystem)."
-        echo "        This script is for local-disk-only mode."
-        echo "        Expected: ext4, xfs, overlay, tmpfs, etc."
+    # 不允許：nfs/cifs/smb/tmpfs（網路或記憶體檔系統）
+    if echo "$fs_type" | grep -qiE 'nfs|cifs|smb|tmpfs'; then
+        echo "[FATAL] $out_path is on $fs_type (network or memory filesystem)."
+        echo "        Please point to a real disk path (ext4/xfs/overlay under disk)."
         exit 1
     fi
 
     echo "✓ $out_path is on local filesystem ($fs_type)"
 done
-
-# Check local available space (recommend at least 100GB for safety)
-local_avail_gb=$(df -BG --output=avail "$OUT_DIR_H" 2>/dev/null | tail -1 | tr -d ' G' || echo "0")
-if [ "$local_avail_gb" -lt 100 ] 2>/dev/null; then
-    echo "⚠ WARNING: Local space ${local_avail_gb}GB < 100GB (recommended minimum)"
-    echo "          Proceed with caution."
-fi
 
 echo "✓ Preflight checks passed"
 echo ""
@@ -176,7 +169,20 @@ echo "Estimated output:"
 echo "  Images per orientation: $TOTAL_IMAGES_PER_ORIENTATION"
 echo "  Total images (H+V):     $TOTAL_IMAGES"
 echo "  Approximate size:       ~${APPROX_SIZE_GB}GB"
+
+# 要求安全空間：估算 * 1.5 + 10GB 緩衝
+SAFETY_GB=$(( APPROX_SIZE_GB * 3 / 2 + 10 ))
+local_avail_gb=$(df -BG --output=avail "$OUT_DIR_H" 2>/dev/null | tail -1 | tr -d ' G' || echo "0")
+
+echo "  Safety needed:        ~${SAFETY_GB}GB"
+echo "  Local available:      ${local_avail_gb}GB"
 echo ""
+
+if [ "$local_avail_gb" -lt "$SAFETY_GB" ] 2>/dev/null; then
+    echo "[FATAL] Not enough local space: need ~${SAFETY_GB}GB (incl. safety), have ${local_avail_gb}GB."
+    echo "        Reduce --n_per_line / --batch_size, or choose a larger disk path."
+    exit 1
+fi
 
 read -p "Continue? (y/n) " -n 1 -r
 echo
@@ -334,6 +340,11 @@ cat > "$REPORT_FILE" <<EOF
     },
     "total_images": $((H_COUNT + V_COUNT))
   },
+  "estimate": {
+    "approx_size_gb": $APPROX_SIZE_GB,
+    "safety_need_gb": $SAFETY_GB,
+    "local_available_gb": $local_avail_gb
+  },
   "config": {
     "batch_size": $BATCH_SIZE,
     "num_workers": $NUM_WORKERS,
@@ -366,12 +377,12 @@ echo "📊 Report saved to: $REPORT_FILE"
 echo ""
 echo "Next steps:"
 echo "  1. Convert to LMDB:"
-echo "     python3 convert_to_lmdb.py --src /ocr_out_h --dst out_h.lmdb"
-echo "     python3 convert_to_lmdb.py --src /ocr_out_v --dst out_v.lmdb"
+echo "     python3 convert_to_lmdb.py --src /root/ocr_out_h --dst out_h.lmdb"
+echo "     python3 convert_to_lmdb.py --src /root/ocr_out_v --dst out_v.lmdb"
 echo ""
 echo "  2. Transfer LMDB files to NFS:"
 echo "     rsync -a out_h.lmdb out_v.lmdb /mnt/whliao/lmdb/"
 echo ""
 echo "  3. (Optional) Clean up local images:"
-echo "     rm -rf /ocr_out_h /ocr_out_v"
+echo "     rm -rf /root/ocr_out_h /root/ocr_out_v"
 echo ""

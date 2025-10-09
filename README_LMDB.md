@@ -17,8 +17,8 @@ pip install lmdb tqdm
 ```
 
 **完成後會產生**：
-- `/ocr_out_h/` - 水平圖片 + manifest
-- `/ocr_out_v/` - 垂直圖片 + manifest
+- `/root/ocr_out_h/` - 水平圖片 + manifest
+- `/root/ocr_out_v/` - 垂直圖片 + manifest
 - `report_YYYYMMDD_HHMMSS.json` - 統計報告
 
 ---

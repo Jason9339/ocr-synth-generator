@@ -8,8 +8,8 @@
 ├─────────────────────────────────────────────────────────────┤
 │ lines.txt → [synth.py] → JPG + manifest                    │
 │                  ↓                                          │
-│           /ocr_out_h  (本機暫存)                        │
-│           /ocr_out_v  (本機暫存)                        │
+│           /root/ocr_out_h  (本機暫存)                        │
+│           /root/ocr_out_v  (本機暫存)                        │
 │                  ↓                                          │
 │           report_YYYYMMDD_HHMMSS.json (統計報告)           │
 └─────────────────────────────────────────────────────────────┘
@@ -18,8 +18,8 @@
 │ 階段 2: 轉換 LMDB（本機）                                   │
 ├─────────────────────────────────────────────────────────────┤
 │ [convert_to_lmdb.py]                                        │
-│     /ocr_out_h → out_h.lmdb (單一檔案)                  │
-│     /ocr_out_v → out_v.lmdb (單一檔案)                  │
+│     /root/ocr_out_h → out_h.lmdb (單一檔案)                  │
+│     /root/ocr_out_v → out_v.lmdb (單一檔案)                  │
 └─────────────────────────────────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -54,15 +54,15 @@
 
 # 或自訂參數
 ./run_batch_local.sh \
-  --out_dir_h /ocr_out_h \
-  --out_dir_v /ocr_out_v \
+  --out_dir_h /root/ocr_out_h \
+  --out_dir_v /root/ocr_out_v \
   --batch_size 10000 \
   --num_workers 6
 ```
 
 **執行完成後會自動產生**：
-- `/ocr_out_h/` - 水平圖片 + manifest
-- `/ocr_out_v/` - 垂直圖片 + manifest
+- `/root/ocr_out_h/` - 水平圖片 + manifest
+- `/root/ocr_out_v/` - 垂直圖片 + manifest
 - `report_YYYYMMDD_HHMMSS.json` - 統計報告
 
 **報告範例**：
@@ -97,20 +97,20 @@ pip install lmdb tqdm
 
 # 轉換水平圖片
 python3 convert_to_lmdb.py \
-  --src /ocr_out_h \
+  --src /root/ocr_out_h \
   --dst out_h.lmdb \
   --verify
 
 # 轉換垂直圖片
 python3 convert_to_lmdb.py \
-  --src /ocr_out_v \
+  --src /root/ocr_out_v \
   --dst out_v.lmdb \
   --verify
 ```
 
 **輸出範例**：
 ```
-Reading manifest: /ocr_out_h/manifest_h_all.jsonl
+Reading manifest: /root/ocr_out_h/manifest_h_all.jsonl
 Found 200000 entries in manifest
 Creating LMDB: out_h.lmdb
   Estimated size: 19531.2 MB
@@ -150,7 +150,7 @@ scp out_h.lmdb out_v.lmdb user@nas:/mnt/whliao/lmdb/
 ls -lh /mnt/whliao/lmdb/
 
 # 清理本機圖片（釋放空間）
-rm -rf /ocr_out_h /ocr_out_v
+rm -rf /root/ocr_out_h /root/ocr_out_v
 ```
 
 ---
@@ -173,7 +173,7 @@ rm -rf /ocr_out_h /ocr_out_v
 
 ### 快速驗證
 ```bash
-python3 convert_to_lmdb.py --src /ocr_out_h --dst test.lmdb --verify
+python3 convert_to_lmdb.py --src /root/ocr_out_h --dst test.lmdb --verify
 ```
 
 ### 手動驗證（Python）
@@ -322,8 +322,8 @@ du -h out_h.lmdb
 cat report_*.json
 
 # 3. 轉換 LMDB（約 5-10 分鐘）
-python3 convert_to_lmdb.py --src /ocr_out_h --dst out_h.lmdb --verify
-python3 convert_to_lmdb.py --src /ocr_out_v --dst out_v.lmdb --verify
+python3 convert_to_lmdb.py --src /root/ocr_out_h --dst out_h.lmdb --verify
+python3 convert_to_lmdb.py --src /root/ocr_out_v --dst out_v.lmdb --verify
 
 # 4. 傳輸到 NFS（約 5-15 分鐘）
 rsync -avh --progress out_h.lmdb out_v.lmdb /mnt/whliao/lmdb/
@@ -332,7 +332,7 @@ rsync -avh --progress out_h.lmdb out_v.lmdb /mnt/whliao/lmdb/
 ls -lh /mnt/whliao/lmdb/
 
 # 6. 清理本機（釋放 ~160GB）
-rm -rf /ocr_out_h /ocr_out_v
+rm -rf /root/ocr_out_h /root/ocr_out_v
 ```
 
 ---
