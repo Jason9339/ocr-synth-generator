@@ -11,8 +11,8 @@ set -euo pipefail
 LINES_FILE="lines.txt"
 FONTS_DIR="fonts"
 BGS_DIR="backgrounds"
-OUT_DIR_H="/mnt/whliao/ocr_out_h"
-OUT_DIR_V="/mnt/whliao/ocr_out_v"
+OUT_DIR_H="output/ocr_out_h"
+OUT_DIR_V="output/ocr_out_v"
 
 N_PER_LINE=20
 BOX_JITTER="2,2"

@@ -191,14 +191,14 @@ def main():
         epilog="""
 Examples:
   # Merge horizontal manifests
-  python3 merge_manifests.py --dir /mnt/whliao/ocr_out_h --orientation h
+  python3 merge_manifests.py --dir output/ocr_out_h --orientation h
 
   # Merge vertical manifests
-  python3 merge_manifests.py --dir /mnt/whliao/ocr_out_v --orientation v
+  python3 merge_manifests.py --dir output/ocr_out_v --orientation v
 
   # Merge both orientations
-  python3 merge_manifests.py --dir /mnt/whliao/ocr_out_h --orientation h
-  python3 merge_manifests.py --dir /mnt/whliao/ocr_out_v --orientation v
+  python3 merge_manifests.py --dir output/ocr_out_h --orientation h
+  python3 merge_manifests.py --dir output/ocr_out_v --orientation v
 
   # Or use the convenience option to merge both
   python3 merge_manifests.py --merge-both
@@ -239,15 +239,15 @@ Examples:
     parser.add_argument(
         "--dir-h",
         type=str,
-        default="/mnt/whliao/ocr_out_h",
-        help="Horizontal output directory (default: /mnt/whliao/ocr_out_h)"
+        default="output/ocr_out_h",
+        help="Horizontal output directory (default: output/ocr_out_h)"
     )
 
     parser.add_argument(
         "--dir-v",
         type=str,
-        default="/mnt/whliao/ocr_out_v",
-        help="Vertical output directory (default: /mnt/whliao/ocr_out_v)"
+        default="output/ocr_out_v",
+        help="Vertical output directory (default: output/ocr_out_v)"
     )
 
     args = parser.parse_args()

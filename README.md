@@ -41,8 +41,8 @@ python3 merge_manifests.py --merge-both
 ### 第四階段：轉換 LMDB
 
 ```bash
-python3 convert_to_lmdb.py --src /mnt/whliao/ocr_out_h --dst out_h.lmdb --verify
-python3 convert_to_lmdb.py --src /mnt/whliao/ocr_out_v --dst out_v.lmdb --verify
+python3 convert_to_lmdb.py --src output/ocr_out_h --dst out_h.lmdb --verify
+python3 convert_to_lmdb.py --src output/ocr_out_v --dst out_v.lmdb --verify
 ```
 
 ### 第五階段：傳輸到 NFS
@@ -55,7 +55,7 @@ rsync -avh --progress out_h.lmdb out_v.lmdb /mnt/whliao/lmdb/
 
 ```bash
 # 確認傳輸成功後
-rm -rf /mnt/whliao/ocr_out_h /mnt/whliao/ocr_out_v
+rm -rf output/ocr_out_h output/ocr_out_v
 ```
 
 ---
@@ -123,8 +123,8 @@ rm -rf /mnt/whliao/ocr_out_h /mnt/whliao/ocr_out_v
 ## ⚠️ 注意事項
 
 1. **批次被中斷**：直接重新執行該批次即可
-2. **檢查進度**：`ls -lh /mnt/whliao/ocr_out_h/manifest_h_*.jsonl`
-3. **磁碟空間**：`df -h /mnt/whliao`
+2. **檢查進度**：`ls -lh output/ocr_out_h/manifest_h_*.jsonl`
+3. **磁碟空間**：`df -h .`
 4. **每批次需逐個執行**，等待上一批次完成後再執行下一個
 
 ---

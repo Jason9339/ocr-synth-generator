@@ -1,9 +1,5 @@
-# Archived documentation
-docs_archive/
-
 # Output directories
-/mnt/whliao/ocr_out_h/
-/mnt/whliao/ocr_out_v/
+output/
 *.lmdb/
 
 # Logs
@@ -19,5 +15,4 @@ __pycache__/
 .Python
 
 # Temporary files
-.path_update_done
 batch_progress.txt
