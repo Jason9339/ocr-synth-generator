@@ -161,7 +161,6 @@ echo ""
 
 # Generate manifest filename
 MANIFEST="${OUT_DIR}/manifest_${ORIENTATION}_${START_LINE}_${END_LINE}.jsonl"
-ERROR_LOG="${OUT_DIR}/error_log_${ORIENTATION}_${START_LINE}_${END_LINE}.txt"
 
 # Build command
 CMD="python3 synth.py \
@@ -170,7 +169,6 @@ CMD="python3 synth.py \
     --bgs_dir $BGS_DIR \
     --out_dir $OUT_DIR \
     --manifest $MANIFEST \
-    --error_log $ERROR_LOG \
     --n_per_line $N_PER_LINE \
     --box_jitter $BOX_JITTER \
     --no_debug_boxes \
@@ -220,6 +218,7 @@ if [ -f "$MANIFEST" ]; then
 fi
 
 # Check for errors
+ERROR_LOG="${OUT_DIR}/error_log_${ORIENTATION}_${START_LINE}_${END_LINE}.txt"
 if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
     ERR_COUNT=$(wc -l < "$ERROR_LOG")
     echo "  Errors:          $ERR_COUNT (see $ERROR_LOG)"
