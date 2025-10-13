@@ -1,0 +1,23 @@
+# Archived documentation
+docs_archive/
+
+# Output directories
+/mnt/whliao/ocr_out_h/
+/mnt/whliao/ocr_out_v/
+*.lmdb/
+
+# Logs
+logs/
+*.log
+report_*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Temporary files
+.path_update_done
+batch_progress.txt

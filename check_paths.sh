@@ -7,8 +7,8 @@ echo "╚═══════════════════════�
 echo ""
 
 # 檢查預設路徑
-H_PATH="/root/ocr_out_h"
-V_PATH="/root/ocr_out_v"
+H_PATH="/mnt/whliao/ocr_out_h"
+V_PATH="/mnt/whliao/ocr_out_v"
 
 echo "預設輸出路徑："
 echo "  水平: $H_PATH"
