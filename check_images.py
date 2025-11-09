@@ -60,7 +60,7 @@ def scan_and_fix_images(directory: Path, fix: bool = False):
                             # <<<< 主要修改點在這裡 <<<<
                             # 直接儲存 RGB 版本的圖片，不傳遞舊的、可能已損壞的 EXIF 資料。
                             # 這會移除所有 EXIF 資訊，但能確保檔案是乾淨的。
-                            fixed_img.save(path, quality=95)
+                            fixed_img.save(path, quality=85)
                         
                         fixed_count += 1
                         print("  -> 修正完成！")

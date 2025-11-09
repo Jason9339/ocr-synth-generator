@@ -434,7 +434,7 @@ def _worker_task(task_args):
             log_buffer=logs
         )
         fpath.parent.mkdir(parents=True, exist_ok=True)
-        img.save(fpath, quality=95)
+        img.save(fpath, quality=85)
         return True, fn, text_raw, logs, None
     except Exception as e:
         return False, fn if 'fn' in locals() else "", text_raw if 'text_raw' in locals() else "", [], repr(e)

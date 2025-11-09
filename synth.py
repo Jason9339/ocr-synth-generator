@@ -497,7 +497,7 @@ def _process_single_image(args_tuple):
         error_log_path=error_log_path
     )
     fpath = outdir / fn
-    img.save(fpath, quality=95)
+    img.save(fpath, quality=85)
     del img  # Release image memory for long-running batches
 
     return {
