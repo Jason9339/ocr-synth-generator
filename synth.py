@@ -20,6 +20,15 @@ FONT_SIZE_RANGE = (26, 44)
 HORIZ_CHAR_SPACING_RANGE = (0, 12)
 VERT_CHAR_SPACING_RANGE  = (0, 12)
 
+ENABLE_PUNCT_ENHANCE = True
+PUNCT_FONT_SCALE_RANGE = (1.0, 1.3)
+PUNCT_MIN_WIDTH_RATIO_RANGE = (0.6, 0.85)
+PUNCT_MIN_HEIGHT_RATIO_RANGE = (0.7, 1.0)
+PUNCT_EXTRA_WIDTH_PX_RANGE = (0, 4)
+PUNCT_EXTRA_HEIGHT_PX_RANGE = (0, 4)
+PUNCT_VERTICAL_BIAS_RATIO_RANGE = (0.2, 0.45)
+PUNCT_HORIZONTAL_BIAS_RATIO_RANGE = (0.55, 0.7)
+
 ASSUMED_DPI     = 96
 BG_RANDOM_POS   = True
 BG_ZOOM_JITTER  = (1.0, 1.15)
@@ -66,6 +75,16 @@ def list_fonts(font_dir: Path) -> List[Path]:
     fonts = [p for p in font_dir.glob("*") if p.suffix.lower() in (".ttf", ".otf")]
     fonts.sort(key=lambda p: p.name.lower())  # <<< NEW: 固定順序
     return fonts
+
+_PUNCT_OVERRIDE = set("、。．，；：？！～…‧「」『』（）《》〈〉【】〔〕［］｛｝﹁﹂﹃﹄·﹏‥︰︿﹀︵︶︹︺︻︼︗︘︵︶﹙﹚﹛﹜﹝﹞")
+
+def is_punctuation_char(ch: str) -> bool:
+    if not ch:
+        return False
+    if ch in _PUNCT_OVERRIDE:
+        return True
+    cat = ud.category(ch)
+    return cat.startswith("P")
 
 def load_background(bg_dir: Path, size: Tuple[int, int]) -> Image.Image:
     bgs = [p for p in bg_dir.glob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".bmp")]
@@ -169,6 +188,8 @@ class GlyphPlan:
     box_x: float; box_y: float
     box_w: int;   box_h: int
     l: int; t: int; r: int; b: int
+    anchor_bias_x: float = 0.0
+    anchor_bias_y: float = 0.0
 
 @dataclass
 class LayoutPlan:
@@ -185,42 +206,79 @@ def plan_layout(
     box_jitter: Tuple[int,int],
     union_pad_pt_range: Tuple[int,int],
     last_resort: Path,
+    punct_enhance: bool,
 ) -> LayoutPlan:
     primary_path = fallback_chain[0]
 
-    def choose_font_for_char(ch: str) -> Tuple[ImageFont.FreeTypeFont, Path]:
+    def choose_font_for_char(ch: str, size: int) -> Tuple[ImageFont.FreeTypeFont, Path]:
         if _font_supports_char(primary_path, ch):
-            return _load_font_cached(primary_path, font_size), primary_path
+            return _load_font_cached(primary_path, size), primary_path
         for p in fallback_chain[1:]:
             if _font_supports_char(p, ch):
-                return _load_font_cached(p, font_size), p
-        return _load_font_cached(last_resort, font_size), last_resort
+                return _load_font_cached(p, size), p
+        return _load_font_cached(last_resort, size), last_resort
 
-    ink_ws, ink_hs, fonts_for_char = [], [], []
+    ink_ws: List[int] = []
+    ink_hs: List[int] = []
+    fonts_for_char: List[Tuple[ImageFont.FreeTypeFont, Path, int, int, int, int, int, int, bool]] = []
     for ch in text:
-        f, p = choose_font_for_char(ch)
+        size_for_char = font_size
+        is_punct = punct_enhance and is_punctuation_char(ch)
+        if is_punct:
+            scale = random.uniform(*PUNCT_FONT_SCALE_RANGE)
+            size_for_char = max(font_size, int(round(font_size * scale)))
+        f, p = choose_font_for_char(ch, size_for_char)
         _, l, t, r, b = measure_bbox(f, ch)
-        ink_w, ink_h = int(r - l), int(b - t)
-        ink_ws.append(max(1, ink_w));  ink_hs.append(max(1, ink_h));  fonts_for_char.append((f, p, l, t, r, b))
+        raw_w = max(1, int(r - l))
+        raw_h = max(1, int(b - t))
+        effective_w = raw_w
+        effective_h = raw_h
+        if is_punct:
+            if orientation == "horizontal":
+                min_w = int(round(size_for_char * random.uniform(*PUNCT_MIN_WIDTH_RATIO_RANGE)))
+                extra_w = random.randint(*PUNCT_EXTRA_WIDTH_PX_RANGE) if PUNCT_EXTRA_WIDTH_PX_RANGE[1] > 0 else 0
+                effective_w = max(effective_w, max(1, min_w)) + extra_w
+            else:
+                min_h = int(round(size_for_char * random.uniform(*PUNCT_MIN_HEIGHT_RATIO_RANGE)))
+                extra_h = random.randint(*PUNCT_EXTRA_HEIGHT_PX_RANGE) if PUNCT_EXTRA_HEIGHT_PX_RANGE[1] > 0 else 0
+                effective_h = max(effective_h, max(1, min_h)) + extra_h
+        ink_ws.append(max(1, effective_w))
+        ink_hs.append(max(1, effective_h))
+        fonts_for_char.append((f, p, l, t, r, b, raw_w, raw_h, is_punct))
 
     glyphs: List[GlyphPlan] = []
     if orientation == "horizontal":
         line_h = max(ink_hs) if ink_hs else 1
         x = 0.0
-        for ch, (f, p, l, t, r, b), iw, ih in zip(text, fonts_for_char, ink_ws, ink_hs):
+        for ch, (f, p, l, t, r, b, raw_w, raw_h, is_punct), iw, ih in zip(text, fonts_for_char, ink_ws, ink_hs):
             box_w, box_h = iw, line_h
             jx = random.randint(-box_jitter[0], box_jitter[0]) if box_jitter[0] else 0
             jy = random.randint(-box_jitter[1], box_jitter[1]) if box_jitter[1] else 0
-            glyphs.append(GlyphPlan(ch, f, p, x+jx, 0+jy, box_w, box_h, l,t,r,b))
+            anchor_bias_x = 0.0
+            anchor_bias_y = 0.0
+            if is_punct:
+                extra_space = max(0.0, line_h - raw_h)
+                if extra_space > 0:
+                    bias_ratio = random.uniform(*PUNCT_VERTICAL_BIAS_RATIO_RANGE)
+                    anchor_bias_y = extra_space * bias_ratio
+            glyphs.append(GlyphPlan(ch, f, p, x+jx, 0+jy, box_w, box_h, l,t,r,b, anchor_bias_x, anchor_bias_y))
             x += box_w + char_spacing
     else:
         col_w = max(ink_ws) if ink_ws else 1
         y = 0.0
-        for ch, (f, p, l, t, r, b), iw, ih in zip(text, fonts_for_char, ink_ws, ink_hs):
+        for ch, (f, p, l, t, r, b, raw_w, raw_h, is_punct), iw, ih in zip(text, fonts_for_char, ink_ws, ink_hs):
             box_w, box_h = col_w, ih
             jx = random.randint(-box_jitter[0], box_jitter[0]) if box_jitter[0] else 0
             jy = random.randint(-box_jitter[1], box_jitter[1]) if box_jitter[1] else 0
-            glyphs.append(GlyphPlan(ch, f, p, 0+jx, y+jy, box_w, box_h, l,t,r,b))
+            anchor_bias_x = 0.0
+            anchor_bias_y = 0.0
+            if is_punct:
+                extra_space = max(0.0, col_w - raw_w)
+                if extra_space > 0:
+                    desired_ratio = random.uniform(*PUNCT_HORIZONTAL_BIAS_RATIO_RANGE)
+                    current_ratio = 0.5
+                    anchor_bias_x = extra_space * (desired_ratio - current_ratio)
+            glyphs.append(GlyphPlan(ch, f, p, 0+jx, y+jy, box_w, box_h, l,t,r,b, anchor_bias_x, anchor_bias_y))
             y += box_h + char_spacing
 
     union_l = min((g.box_x for g in glyphs), default=0.0)
@@ -245,8 +303,8 @@ def render_layout(layout: LayoutPlan, text_color: str, last_resort: Path, debug_
     for p in layout.glyphs:
         bx = layout.pad_l + (p.box_x - layout.union_l)
         by = layout.pad_t + (p.box_y - layout.union_t)
-        anchor_x = bx + (p.box_w - (p.r - p.l)) / 2 - p.l
-        anchor_y = by + (p.box_h - (p.b - p.t)) / 2 - p.t
+        anchor_x = bx + (p.box_w - (p.r - p.l)) / 2 - p.l + p.anchor_bias_x
+        anchor_y = by + (p.box_h - (p.b - p.t)) / 2 - p.t + p.anchor_bias_y
         d.text((anchor_x, anchor_y), p.ch, font=p.font, fill=text_color)
         crop_box = (int(bx), int(by), int(bx + p.box_w), int(by + p.box_h))
         region = img.crop(crop_box)
@@ -370,6 +428,7 @@ def synth_one(
     debug_boxes: bool = DEBUG_BOXES_DEFAULT,
     box_jitter: Tuple[int,int] = BOX_JITTER_DEFAULT,
     union_pad_pt_range: Tuple[int,int] = UNION_PAD_PT_RANGE,
+    punct_enhance: bool = ENABLE_PUNCT_ENHANCE,
     img_id: Optional[str] = None,
     error_log_path: Optional[Path] = None,
 ) -> Image.Image:
@@ -389,7 +448,8 @@ def synth_one(
         text=render_text, font_size=font_size,
         orientation=orientation, char_spacing=char_spacing,
         fallback_chain=fallback_chain, box_jitter=box_jitter,
-        union_pad_pt_range=union_pad_pt_range, last_resort=last_resort
+        union_pad_pt_range=union_pad_pt_range, last_resort=last_resort,
+        punct_enhance=punct_enhance
     )
 
     text_color = TEXT_GRAY_14[random.randint(*GRAY_IDX_RANGE)]
@@ -419,7 +479,7 @@ def _init_worker(seed_base):
 def _process_single_image(args_tuple):
     """Process a single image generation task."""
     (text_raw, global_idx, k, vertical, all_fonts, last_resort,
-     bgs_dir, debug_boxes, box_jitter, union_pad_pt,
+     bgs_dir, debug_boxes, box_jitter, union_pad_pt, punct_enhance,
      error_log_path, outdir) = args_tuple
 
     fn = f"{global_idx:06d}_{'v' if vertical else 'h'}_{k}.jpg"
@@ -432,6 +492,7 @@ def _process_single_image(args_tuple):
         debug_boxes=debug_boxes,
         box_jitter=box_jitter,
         union_pad_pt_range=union_pad_pt,
+        punct_enhance=punct_enhance,
         img_id=fn,
         error_log_path=error_log_path
     )
@@ -463,6 +524,12 @@ def main():
     p.add_argument("--union_pad", type=str, default=f"{UNION_PAD_PT_RANGE[0]},{UNION_PAD_PT_RANGE[1]}",
                    help="綠框外四邊隨機邊距（pt），min,max；最小可 0")
     p.add_argument("--last_resort_font", type=str, default="", help="最後備援字體（路徑或 fonts 內名稱/關鍵字）。未指定會自動從 fonts/ 嘗試挑 Noto/SourceHan。")
+    punct_group = p.add_mutually_exclusive_group()
+    punct_group.add_argument("--punct_enhance", dest="punct_enhance", action="store_true",
+                             help="啟用標點符號增強（放大字級與額外間距）。")
+    punct_group.add_argument("--no_punct_enhance", dest="punct_enhance", action="store_false",
+                             help="停用標點符號增強。")
+    p.set_defaults(punct_enhance=ENABLE_PUNCT_ENHANCE)
     p.add_argument("--seed", type=int, default=None, help="Random seed for reproducible synthesis")
     p.add_argument("--start_line", type=int, default=0, help="起始行號（從 0 開始）")
     p.add_argument("--end_line", type=int, default=None, help="結束行號（不含），None 表示到結尾")
@@ -506,7 +573,7 @@ def main():
         for k in range(args.n_per_line):
             tasks.append((
                 text_raw, global_idx, k, vertical, all_fonts, last_resort,
-                args.bgs_dir, debug_boxes, box_jitter, union_pad_pt,
+                args.bgs_dir, debug_boxes, box_jitter, union_pad_pt, args.punct_enhance,
                 error_log_path, outdir
             ))
 
