@@ -1,0 +1,8 @@
+# OCR Synthesis Data Generator - Dependencies
+
+# Core dependencies
+Pillow>=9.0.0
+fonttools>=4.0.0
+
+# Optional: LMDB support (for convert_to_lmdb.py)
+lmdb>=1.3.0

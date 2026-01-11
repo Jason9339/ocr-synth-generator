@@ -1,139 +1,263 @@
-# OCR Synthesis Data Generator
+# OCR Synthesis Data Generator for Traditional Chinese
 
-高效能 OCR 訓練資料合成工具，支援繁體中文單行文字生成。
+[![Dataset](https://img.shields.io/badge/Dataset-HuggingFace-yellow)](https://huggingface.co/datasets/ZihCiLin/traditional-chinese-ocr-synthetic)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
----
+A configurable synthetic data generator for Traditional Chinese OCR, specifically designed for historical document recognition. This tool supports both horizontal and vertical text layouts, archaic character variants, and realistic visual degradation effects.
 
-## 🚀 快速執行
+![Synthetic Data Examples](Synthetic_Data.png)
+*Examples of generated synthetic images with both horizontal (left) and vertical (right) text layouts*
 
-針對 34,413 行資料，每批次 5000 行的執行流程。
+**Paper**: "Decoding-Time Fusion of OCR and Large Language Models for Traditional Chinese Historical Document Recognition"
 
-### 第一階段：生成圖片（水平方向）
+## Key Features
 
-```bash
-./run_single_batch.sh 0 5000 h
-./run_single_batch.sh 5000 10000 h
-./run_single_batch.sh 10000 15000 h
-./run_single_batch.sh 15000 20000 h
-./run_single_batch.sh 20000 25000 h
-./run_single_batch.sh 25000 30000 h
-./run_single_batch.sh 30000 34413 h
-```
+- **Dual Orientation Support**: Generate both horizontal and vertical text layouts
+- **Historical Document Simulation**
+- **Extensive Character Coverage**: Supports 13,172 Traditional Chinese characters including archaic variants (CNS11643)
+- **Smart Font Fallback**: Automatic font substitution ensures 100% character renderability
+- **LMDB Export**: Direct conversion to LMDB format for fast training data loading
+- **Flexible Configuration**: Customizable sentence length, character distribution, and visual appearance
 
-### 第二階段：生成圖片（垂直方向）
+## Dataset
 
-```bash
-./run_single_batch.sh 0 5000 v
-./run_single_batch.sh 5000 10000 v
-./run_single_batch.sh 10000 15000 v
-./run_single_batch.sh 15000 20000 v
-./run_single_batch.sh 20000 25000 v
-./run_single_batch.sh 25000 30000 v
-./run_single_batch.sh 30000 34413 v
-```
+We provide a pre-generated dataset of **4.1 million** synthetic image-text pairs:
 
-### 第三階段：合併 Manifest
+- **Hugging Face**: [ZihCiLin/traditional-chinese-ocr-synthetic](https://huggingface.co/datasets/ZihCiLin/traditional-chinese-ocr-synthetic)
+- **Splits**: Training set + two test sets (random sequences and semantic sentences)
 
-```bash
-python3 merge_manifests.py --merge-both
-```
 
-### 第四階段：轉換 LMDB
+## Installation
+
+### Requirements
+
+- Python 3.8+
+- PIL (Pillow)
+- LMDB (optional, for LMDB conversion)
+
+### Setup
 
 ```bash
-python3 convert_to_lmdb.py --src output/ocr_out_h --dst out_h.lmdb --verify
-python3 convert_to_lmdb.py --src output/ocr_out_v --dst out_v.lmdb --verify
+# Clone the repository
+git clone https://github.com/Jason9339/ocr-synth-generator.git
+cd ocr-synth-generator
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Verify font and background resources
+python scripts/check_fonts.py
 ```
 
-### 第五階段：傳輸到 NFS
+## Quick Start
+
+### 1. Prepare Your Data
+
+We provide a sample text file ([data/sample_lines.txt](data/sample_lines.txt)) with example sentences. You can also create your own text file with one sentence per line:
+
+```
+這是第一行範例文字
+這是第二行範例文字
+古籍文獻辨識研究
+```
+
+Place your font files in the `fonts/` directory and background textures in `backgrounds/`.
+
+### 2. Generate Synthetic Images
 
 ```bash
-rsync -avh --progress out_h.lmdb out_v.lmdb /mnt/whliao/lmdb/
+# Horizontal layout
+python3 src/synth.py \
+    --lines data/sample_lines.txt \
+    --fonts_dir fonts \
+    --bgs_dir backgrounds \
+    --out_dir output/horizontal \
+    --manifest output/horizontal/manifest.jsonl \
+    --n_per_line 5 \
+    --last_resort_font NotoSansTC-Regular.ttf \
+    --num_workers 6
+
+# Vertical layout
+python3 src/synth.py \
+    --lines data/sample_lines.txt \
+    --fonts_dir fonts \
+    --bgs_dir backgrounds \
+    --out_dir output/vertical \
+    --manifest output/vertical/manifest.jsonl \
+    --n_per_line 5 \
+    --vertical \
+    --last_resort_font NotoSansTC-Regular.ttf \
+    --num_workers 6
 ```
 
-### 第六階段：清理（可選）
+### 3. Merge Manifests (for Batch Processing)
 
 ```bash
-# 確認傳輸成功後
-rm -rf output/ocr_out_h output/ocr_out_v
+python3 src/merge_manifests.py --merge-both
 ```
 
----
+### 4. Convert to LMDB (Optional)
 
-## 📚 詳細文檔
-
-- **完整分步指南**: [STEP_BY_STEP_5K.md](STEP_BY_STEP_5K.md) - 每個批次的詳細檢查點和預期結果
-- **批次規劃工具**: `python3 plan_batches.py --batch-size 5000`
-
----
-
-## 🛠️ 工具說明
-
-### run_single_batch.sh
-執行單個批次的圖片生成。
-
-語法：`./run_single_batch.sh <起始行> <結束行> <方向>`
-- 方向：`h` (水平) 或 `v` (垂直)
-
-### merge_manifests.py
-合併所有批次的 manifest 檔案。
-
-語法：`python3 merge_manifests.py --merge-both`
-
-### convert_to_lmdb.py
-將圖片和 manifest 轉換為 LMDB 格式。
-
-語法：`python3 convert_to_lmdb.py --src <目錄> --dst <輸出.lmdb> --verify`
-
-### plan_batches.py
-規劃批次執行計劃。
-
-語法：`python3 plan_batches.py --batch-size <行數>`
-
----
-
-## 📊 資源需求
-
-- **總圖片數**: ~1,376,520 張（水平 + 垂直）
-- **磁碟空間**: ~105 GB
-- **建議批次大小**: 5,000 行（每批次 ~2-5 小時）
-- **總執行時間**: ~28-70 小時（14 個批次）
-
----
-
-## 📁 輸出目錄結構
-
-```
-/mnt/whliao/
-├── ocr_out_h/              # 水平方向輸出
-│   ├── *.jpg               # 圖片檔案
-│   ├── manifest_h_*.jsonl  # 各批次 manifest
-│   └── manifest_h_all.jsonl # 合併後的 manifest
-├── ocr_out_v/              # 垂直方向輸出
-│   ├── *.jpg
-│   ├── manifest_v_*.jsonl
-│   └── manifest_v_all.jsonl
-└── lmdb/                   # 最終 LMDB 輸出
-    ├── out_h.lmdb/
-    └── out_v.lmdb/
+```bash
+python3 src/convert_to_lmdb.py \
+    --src output/horizontal \
+    --dst horizontal.lmdb \
+    --verify
 ```
 
+## Configuration
+
+### Core Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--lines` | Input text file (one line per sentence) | Required |
+| `--fonts_dir` | Directory containing font files (.ttf, .otf) | `fonts` |
+| `--bgs_dir` | Directory containing background images | `backgrounds` |
+| `--out_dir` | Output directory for generated images | Required |
+| `--n_per_line` | Number of images to generate per text line | `20` |
+| `--vertical` | Generate vertical text layout | `False` |
+| `--last_resort_font` | Fallback font for missing glyphs (must have full coverage) | Required |
+| `--num_workers` | Number of parallel workers | `6` |
+| `--seed` | Random seed for reproducibility | `42` |
+
+### Visual Appearance
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--box_jitter` | Bounding box jitter (width,height) in pixels | `0,0` |
+| `--debug_boxes` | Draw debug bounding boxes | `False` |
+
+See `python3 src/synth.py --help` for full parameter list.
+
+## Output Format
+
+### Manifest File (JSONL)
+
+Each generated image produces a JSON line in the manifest:
+
+```json
+{
+  "image_path": "output/horizontal/img_00001_0.jpg",
+  "text": "這是範例文字",
+  "orientation": "horizontal",
+  "font": "NotoSerifTC-Bold.ttf",
+  "font_size": 32,
+  "background": "bg_paper_001.jpg"
+}
+```
+
+### Directory Structure
+
+```
+output/
+├── horizontal/
+│   ├── img_00001_0.jpg
+│   ├── img_00001_1.jpg
+│   ├── ...
+│   └── manifest.jsonl
+└── vertical/
+    ├── img_00001_0.jpg
+    ├── ...
+    └── manifest.jsonl
+```
+
+## Advanced Usage
+
+### Customize Text Appearance
+
+Edit parameters in [src/synth.py](src/synth.py):
+
+```python
+# Font size range
+FONT_SIZE_RANGE = (26, 44)
+
+# Text color (grayscale levels)
+TEXT_GRAY_14 = ["#000000", "#141414", ..., "#F0F0F0"]
+
+# Character spacing
+HORIZ_CHAR_SPACING_RANGE = (0, 12)
+VERT_CHAR_SPACING_RANGE = (0, 12)
+
+# Blur effect
+ENABLE_BLUR = True
+BLUR_SIGMA_RANGE = (0.2, 0.9)
+```
+
+### Add Custom Fonts
+
+1. Place `.ttf` or `.otf` files in `fonts/` directory
+2. The generator automatically selects fonts randomly
+3. Use `--last_resort_font` to specify fallback font for missing glyphs
+
+### Add Background Textures
+
+1. Place `.jpg` or `.png` images in `backgrounds/` directory
+2. Backgrounds are randomly selected and applied with zoom jitter
+3. Supports paper textures, aging effects, stains, etc.
+
+## Tools
+
+### `check_fonts.py`
+
+Verify font coverage for your character set:
+
+```bash
+python3 scripts/check_fonts.py
+```
+
+### `merge_manifests.py`
+
+Merge multiple batch manifests:
+
+```bash
+python3 src/merge_manifests.py --merge-both
+```
+
+### `convert_to_lmdb.py`
+
+Convert generated data to LMDB format:
+
+```bash
+python3 src/convert_to_lmdb.py --src output/horizontal --dst output.lmdb --verify
+```
+
+## Related Resources
+
+- **Synthetic Dataset**: [HuggingFace - traditional-chinese-ocr-synthetic](https://huggingface.co/datasets/ZihCiLin/traditional-chinese-ocr-synthetic)
+- **Historical Document Benchmark**: [HuggingFace - traditional-chinese-historical-ocr-lo-chia-luen](https://huggingface.co/datasets/ZihCiLin/traditional-chinese-historical-ocr-lo-chia-luen)
+- **Annotation System**: [document-ocr-annotation-system](https://github.com/Jason9339/document-ocr-annotation-system)
+
+## Citation
+
+
+
+## Troubleshooting
+
+### Out of Memory
+
+Reduce `--num_workers` or process smaller batches
+
+### Missing Glyphs
+
+Ensure `--last_resort_font` has comprehensive character coverage (e.g., Noto Sans TC)
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- **Lo Chia-Luen Collection**: Historical document samples from [NCCU Libraries Special Collection](https://da.lib.nccu.edu.tw/dp-1.html)
+- **Fonts**: Noto Fonts and traditional Chinese typefaces
+- **Background Textures**: Historical paper textures and degradation effects
+
+## Contact
+
+For questions or issues, please:
+- Open an issue on GitHub
+- Contact: 111703004@g.nccu.edu.tw
+
 ---
 
-## ⚠️ 注意事項
-
-1. **批次被中斷**：直接重新執行該批次即可
-2. **檢查進度**：`ls -lh output/ocr_out_h/manifest_h_*.jsonl`
-3. **磁碟空間**：`df -h .`
-4. **每批次需逐個執行**，等待上一批次完成後再執行下一個
-
----
-
-## ✨ 特色
-
-- ✅ 避免 CPU 時間限制（分批執行）
-- ✅ 批次失敗可單獨重試
-- ✅ 自動字體 fallback（確保 100% 可渲染）
-- ✅ 多程序並行處理
-- ✅ LMDB 格式輸出（訓練載入快速）
-- ✅ 支援水平/垂直文字
+**Made for digital humanities and OCR research**

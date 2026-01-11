@@ -303,9 +303,6 @@ Examples:
         print(f"     python3 convert_to_lmdb.py --src {args.dir_h} --dst out_h.lmdb --verify")
         print(f"     python3 convert_to_lmdb.py --src {args.dir_v} --dst out_v.lmdb --verify")
         print()
-        print("  2. Transfer to NFS:")
-        print("     rsync -avh --progress out_h.lmdb out_v.lmdb /mnt/whliao/lmdb/")
-        print()
 
         return
 
